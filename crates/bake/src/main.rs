@@ -3,12 +3,18 @@
 // Example API for testing purposes.
 
 use poem::{listener::TcpListener, Route};
-use poem_openapi::{param::Query, payload::PlainText, OpenApi, OpenApiService};
+use poem_openapi::{param::Query, payload::PlainText, OpenApi, OpenApiService, Tags};
+
+#[derive(Tags)]
+enum Labels {
+    Test
+}
 
 struct Api;
 
-#[OpenApi]
+#[OpenApi(tag = "Labels::Test")]
 impl Api {
+    /// Hello User example function.
     #[oai(path = "/hello", method = "get")]
     async fn index(&self, name: Query<Option<String>>) -> PlainText<String> {
         match name.0 {
@@ -21,11 +27,11 @@ impl Api {
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let api_service =
-        OpenApiService::new(Api, "BAKE API", "1.0").server("http://localhost:3000/api");
+        OpenApiService::new(Api, "BAKE API", "1.0").server("http://localhost:80/api");
     let ui = api_service.swagger_ui();
     let app = Route::new().nest("/api", api_service).nest("/", ui);
 
-    poem::Server::new(TcpListener::bind("0.0.0.0:3000"))
+    poem::Server::new(TcpListener::bind("0.0.0.0:80"))
         .run(app)
         .await
 }
