@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/abd-clam",
+    "crates/bake",
     "crates/distances",
     "crates/symagen",
     "crates/shell",
