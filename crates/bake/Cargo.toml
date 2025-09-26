@@ -1,6 +1,9 @@
 [package]
 name = "bake"
 version = "0.1.0"
+authors = [
+    "Camille Woodring <cwoodring@uri.edu>",
+]
 edition = "2024"
 
 [dependencies]
