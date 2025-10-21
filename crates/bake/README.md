@@ -1,12 +1,9 @@
-# BAKE: Better Access to K-nn for Everyone
+# BAKE: Better Access to k-NN for Everyone
 
 > BAKE is in very early development and is not ready for use.
 
-OAS 3.0 compliant HTTP API for CLAM, powered by the Poem framework. 
+HTTP API for CLAM, powered by the Poem framework. 
 
-To run:
-```sh
-cargo run --release --bin bake
-```
+To run from the main workspace directory: `cargo run --release --bin bake`
 
-A Swagger UI panel is accessible at http://localhost/ to view and test API endpoints.
+A Swagger UI panel is accessible at http://localhost/ (port 80) to view and test API endpoints.
