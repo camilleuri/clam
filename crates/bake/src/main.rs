@@ -1,7 +1,5 @@
 //! BAKE - the CLAM web server.
 
-// Example API for testing purposes.
-
 use poem::{listener::TcpListener, Route};
 use poem_openapi::{param::Query, payload::{PlainText, Binary}, OpenApi, OpenApiService, Tags};
 use std::fs::File;
