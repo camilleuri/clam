@@ -126,7 +126,7 @@ impl Api {
     /// Return the full index file
     #[oai(path = "/fullindex", method = "get", tag = "Labels::DevFunc")]
     async fn fullindex(&self) -> PlainText<String> {
-        let file_path = self.tmp_dir.path().join("index.txt");
+        let file_path = self.tmp_dir.path().join("index.json");
         let contents = fs::read_to_string(file_path);
         poem_openapi::payload::PlainText(contents.unwrap())
     }

@@ -11,8 +11,9 @@ A Swagger UI panel is accessible at http://localhost/ (port 80) to view and test
 ### Currently implemented
 - [ ] Core functions
   - [x] Upload
-  - [ ] Delete
   - [ ] Download
+  - [ ] Delete
+  - [x] About
 - [ ] Search functions
   - [ ] kNN
   - [ ] rNN
