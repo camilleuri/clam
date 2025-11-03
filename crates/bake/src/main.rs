@@ -1,9 +1,14 @@
 //! BAKE - the CLAM web server.
 
+// TODO:
+// Cleanup "let _"
+// Use a metadata file per upload instead of a single monolithic file
+// Make /download return a txt file instead of an octet buffer
+
 use poem::{listener::TcpListener, Route};
 use poem_openapi::{param::Query, payload::{PlainText, Binary}, OpenApi, OpenApiService, Tags};
 use serde_json::{self, Error};
-use std::{fs, io::Seek};
+use std::{fs, io::{Read, Seek}};
 use std::io::{Write, BufReader};
 use std::path::Path;
 use tempfile::tempdir;
@@ -91,17 +96,22 @@ impl Api {
     #[oai(path = "/delete", method = "delete", tag = "Labels::FileManagement")]
     async fn delete(&self, uuid: Query<String>) -> PlainText<String> {
         let file_path = self.tmp_dir.path().join(format!("{}.txt", uuid.to_string()));
-        todo!("Camille - Use write_index to set the removed file to Deleted");
+        write_index(uuid.to_string(), "Deleted".to_string(), &self.tmp_dir);
         match fs::remove_file(file_path) {
             Ok(_) => PlainText(format!("UUID {} successfully deleted.", uuid.to_string())),
             Err(e) => PlainText(format!("UUID {} deletion failed with error {}.", uuid.to_string(), e.to_string())),
         }
     }
 
-    /// Download a dataset or query result from the server by UUID.
+    /// Download a dataset or query result from the server by UUID. For now, download must be manually renamed to the proper file extention.
     #[oai(path = "/download", method = "get", tag = "Labels::FileManagement")]
-    async fn download(&self, _uuid: Query<String>) -> PlainText<String> {
-        todo!("Camille");
+    async fn download(&self, uuid: Query<String>) -> Binary<Vec<u8>> {
+        let file_path = self.tmp_dir.path().join(format!("{}.txt", uuid.to_string()));
+        let mut f = fs::File::open(file_path).unwrap();
+        let _ = f.lock();
+        let mut buffer = Vec::new();
+        let _ = f.read_to_end(&mut buffer);
+        poem_openapi::payload::Binary(buffer)
     }
 
     // Information functions.

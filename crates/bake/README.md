@@ -9,10 +9,10 @@ To run from the main workspace directory: `cargo run --release --bin bake`
 A Swagger UI panel is accessible at http://localhost/ (port 80) to view and test API endpoints.
 
 ### Currently implemented
-- [ ] Core functions
+- [x] Core functions
   - [x] Upload
-  - [ ] Download
-  - [ ] Delete
+  - [x] Download
+  - [x] Delete
   - [x] About
 - [ ] Search functions
   - [ ] kNN
