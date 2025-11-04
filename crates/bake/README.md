@@ -14,9 +14,9 @@ A Swagger UI panel is accessible at http://localhost/ (port 80) to view and test
   - [x] Download
   - [x] Delete
   - [x] About
-- [ ] Search functions
-  - [ ] kNN
+- [ ] CAKES functions
   - [ ] rNN
+  - [ ] kNN
 - [ ] Additional functions
   - [ ] Anomaly detection
   - [ ] Multiple sequence alignment

@@ -1,7 +1,6 @@
 //! BAKE - the CLAM web server.
 
 // TODO:
-// Cleanup "let _"
 // Use a metadata file per upload instead of a single monolithic file
 // Make /download return a txt file instead of an octet buffer
 
@@ -36,7 +35,7 @@ fn read_index(uuid: String, tmp_dir: &tempfile::TempDir) -> String {
     let file_path = tmp_dir.path().join("index.json");
     if Path::new(&file_path).exists() {
         let f = fs::File::open(file_path).unwrap();
-        let _ = f.lock();
+        f.lock().expect("Failed to lock file");
         let reader = BufReader::new(f);
         let json_value: serde_json::Value = serde_json::from_reader(reader).unwrap();
 
@@ -59,7 +58,7 @@ fn write_index(uuid: String, to_write: String, tmp_dir: &tempfile::TempDir) {
             .read(true)
             .open(file_path)
             .unwrap();
-    let _ = f.lock();
+    f.lock().expect("Failed to lock file");
     let reader = BufReader::new(&f);
     let json_attempt: Result<serde_json::Value, Error> = serde_json::from_reader(reader);
     let mut json_value: serde_json::Value;
@@ -70,9 +69,9 @@ fn write_index(uuid: String, to_write: String, tmp_dir: &tempfile::TempDir) {
         }
         Err(_) => json_value = serde_json::json!({uuid: to_write})
     }
-    let _ = f.set_len(0);
-    let _ = f.rewind();
-    let _ = f.write_all(json_value.to_string().as_bytes());
+    f.set_len(0).expect("Failed to reset file (zero length)");
+    f.rewind().expect("Failed to reset file (zero head)");
+    f.write_all(json_value.to_string().as_bytes()).expect("Failed to write to file");
 }
 
 #[OpenApi]
@@ -108,9 +107,9 @@ impl Api {
     async fn download(&self, uuid: Query<String>) -> Binary<Vec<u8>> {
         let file_path = self.tmp_dir.path().join(format!("{}.txt", uuid.to_string()));
         let mut f = fs::File::open(file_path).unwrap();
-        let _ = f.lock();
+        f.lock().expect("Failed to lock file");
         let mut buffer = Vec::new();
-        let _ = f.read_to_end(&mut buffer);
+        f.read_to_end(&mut buffer).expect("Failed to read file");;
         poem_openapi::payload::Binary(buffer)
     }
 
@@ -125,9 +124,11 @@ impl Api {
 
     // Query functions.
 
-    /// Execute some query, such as search, on a dataset.
-    #[oai(path = "/query", method = "get", tag = "Labels::Queries")]
-    async fn query(&self, _dataset_uuid: Query<String>) -> PlainText<String> {
+    /// Begin a rNN search on a dataset. Returns a query UUID.
+    #[oai(path = "/rnn", method = "get", tag = "Labels::Queries")]
+    async fn rnn(&self, _dataset_uuid: Query<String>) -> PlainText<String> {
+        let file_path = self.tmp_dir.path().join("index.json");
+        let contents = fs::read_to_string(file_path);
         todo!("Camille");
     }
 
@@ -148,7 +149,7 @@ async fn main() -> Result<(), std::io::Error> {
     let tmp_dir = tempdir()?;
     println!("Working from directory {:?}", tmp_dir.path());
     let api_service =
-        OpenApiService::new(Api { tmp_dir }, "BAKE API", "0.1.0").server("http://localhost:80/api");
+        OpenApiService::new(Api { tmp_dir }, "URI-ABD BAKE API", "0.1.0").server("http://localhost:80/api");
     let ui = api_service.swagger_ui();
     let app = Route::new().nest("/api", api_service).nest("/", ui);
 
