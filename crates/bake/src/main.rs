@@ -15,6 +15,7 @@
 use abd_clam::{Ball, Cluster, FlatVec, cakes::{self, SearchAlgorithm}, cluster::Partition, dataset::AssociatesMetadataMut};
 use poem::{listener::TcpListener, Route};
 use poem_openapi::{param::Query, payload::{PlainText, Binary}, OpenApi, OpenApiService, Tags};
+use rand::prelude::*;
 use serde_json::{self, Error};
 use std::{fs, io::{Read, Seek}};
 use std::io::{Write, BufReader};
@@ -150,12 +151,14 @@ impl Api {
 
         let labels_path = self.tmp_dir.path().join(format!("{}.txt", labels_uuid.to_string()));
         let labels_file_contents= fs::read_to_string(labels_path).expect("Failed to read labels as string");
-        let labels: Vec<Vec<f32>> = serde_json::from_str(&labels_file_contents).expect("Failed to read string of labels as vector");
+        let labels: Vec<bool> = serde_json::from_str(&labels_file_contents).expect("Failed to read string of labels as vector");
+        println!("{:?}", rows);
+        println!("{:?}", labels);
 
         let data = FlatVec::new(rows).unwrap().with_metadata(&labels).unwrap();
 
         let clam_metric = match metric.as_str() {
-            "euclidian" => Ok(abd_clam::metric::Euclidean),
+            "euclidean" => Ok(abd_clam::metric::Euclidean),
             // todo!("Camille")
             &_ => Err("Incorrect metric specified"),
         }.expect("Incorrect metric specified");
@@ -173,6 +176,7 @@ impl Api {
 
         let alg = cakes::RnnClustered(*radius);
         let rnn_results: Vec<(usize, f32)> = alg.search(&data, &clam_metric, &root, &query);
+        println!("{:?}", rnn_results);
         let results_json = serde_json::to_string(&rnn_results).expect("Failed to convert results to json");
 
         let id = Uuid::new_v4();
@@ -192,13 +196,40 @@ impl Api {
         let contents = fs::read_to_string(file_path);
         poem_openapi::payload::PlainText(contents.unwrap())
     }
-    
+
+    /// Generate random dataset for testing using symagen
+    #[oai(path = "/symagen", method = "get", tag = "Labels::DevFunc")]
+    async fn symagen(&self) -> PlainText<String> {
+        let seed = 42;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let (cardinality, dimensionality) = (1_000, 10);
+        let (min_val, max_val) = (-1.0, 1.0);
+        let rows: Vec<Vec<f32>> = 
+            symagen::random_data::random_tabular(cardinality, dimensionality, min_val, max_val, &mut rng);
+        let labels: Vec<bool> = rows.iter().map(|v| v[0] > 0.0).collect();
+        
+        let rows_json = serde_json::to_string(&rows).expect("Failed to convert json to string");
+        let rows_id = Uuid::new_v4();
+        let rows_file_path = self.tmp_dir.path().join(format!("{}.txt", rows_id.to_string()));
+        let mut rows_tmp_file = fs::File::create(&rows_file_path).expect("Failed to create file");
+        rows_tmp_file.write_all(rows_json.as_ref()).expect("Failed to write data");
+        write_index(rows_id.to_string(), "Dataset (symagen rows)".to_string(), &self.tmp_dir);
+
+        let labels_json = serde_json::to_string(&labels).expect("Failed to convert json to string");
+        let labels_id = Uuid::new_v4();
+        let labels_file_path = self.tmp_dir.path().join(format!("{}.txt", labels_id.to_string()));
+        let mut labels_tmp_file = fs::File::create(&labels_file_path).expect("Failed to create file");
+        labels_tmp_file.write_all(labels_json.as_ref()).expect("Failed to write data");
+        write_index(labels_id.to_string(), "Dataset (symagen labels)".to_string(), &self.tmp_dir);
+
+        PlainText(format!("Rows UUID: {}, Labels UUID: {}", rows_id.to_string(), labels_id.to_string()))
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let tmp_dir = tempdir()?;
-    println!("Working from directory {:?}", tmp_dir.path());
+    println!("Working from directory {:?}\nQuick link: http://localhost", tmp_dir.path());
     let api_service =
         OpenApiService::new(Api { tmp_dir }, "URI-ABD BAKE API", "0.1.0").server("http://localhost:80/api");
     let ui = api_service.swagger_ui();
