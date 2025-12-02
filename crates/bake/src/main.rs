@@ -1,9 +1,18 @@
 //! BAKE - the CLAM web server.
 
 // TODO:
+// Test rNN
 // Use a metadata file per upload instead of a single monolithic file
 // Make /download return a txt file instead of an octet buffer
+// Specify features of abd-clam used
 
+// Allow rNN and kNN to take different metrics
+// Allow rNN and kNN to specify criteria/query
+// Allow rNN and kNN to take datasets of varying dimensionality/type
+// Allow rNN and kNN to fail gracefully and write failure state to UUID file
+// Allow rNN and kNN to return UUID early and continue working
+
+use abd_clam::{Ball, Cluster, FlatVec, cakes::{self, SearchAlgorithm}, cluster::Partition, dataset::AssociatesMetadataMut};
 use poem::{listener::TcpListener, Route};
 use poem_openapi::{param::Query, payload::{PlainText, Binary}, OpenApi, OpenApiService, Tags};
 use serde_json::{self, Error};
@@ -109,7 +118,7 @@ impl Api {
         let mut f = fs::File::open(file_path).unwrap();
         f.lock().expect("Failed to lock file");
         let mut buffer = Vec::new();
-        f.read_to_end(&mut buffer).expect("Failed to read file");;
+        f.read_to_end(&mut buffer).expect("Failed to read file");
         poem_openapi::payload::Binary(buffer)
     }
 
@@ -126,10 +135,52 @@ impl Api {
 
     /// Begin a rNN search on a dataset. Returns a query UUID.
     #[oai(path = "/rnn", method = "get", tag = "Labels::Queries")]
-    async fn rnn(&self, _dataset_uuid: Query<String>) -> PlainText<String> {
-        let file_path = self.tmp_dir.path().join("index.json");
-        let contents = fs::read_to_string(file_path);
-        todo!("Camille");
+    async fn rnn(&self, 
+        rows_uuid: Query<String>, 
+        labels_uuid: Query<String>,
+        metric: Query<String>,
+        dimensionality: Query<usize>,
+        radius: Query<f32>,
+        seed: Query<Option<usize>>
+    ) -> PlainText<String> {
+
+        let rows_path = self.tmp_dir.path().join(format!("{}.txt", rows_uuid.to_string()));
+        let rows_file_contents= fs::read_to_string(rows_path).expect("Failed to read rows as string");
+        let rows: Vec<Vec<f32>> = serde_json::from_str(&rows_file_contents).expect("Failed to read string of rows as vector");
+
+        let labels_path = self.tmp_dir.path().join(format!("{}.txt", labels_uuid.to_string()));
+        let labels_file_contents= fs::read_to_string(labels_path).expect("Failed to read labels as string");
+        let labels: Vec<Vec<f32>> = serde_json::from_str(&labels_file_contents).expect("Failed to read string of labels as vector");
+
+        let data = FlatVec::new(rows).unwrap().with_metadata(&labels).unwrap();
+
+        let clam_metric = match metric.as_str() {
+            "euclidian" => Ok(abd_clam::metric::Euclidean),
+            // todo!("Camille")
+            &_ => Err("Incorrect metric specified"),
+        }.expect("Incorrect metric specified");
+
+        let criteria = |c: &Ball<_>| c.cardinality() > 1; // todo!("Camille")
+
+        let query = vec![0_f32; *dimensionality]; // todo!("Camille")
+
+        let root_seed: usize = match *seed {
+            Some(i) => i,
+            None => 42
+        };
+
+        let root = Ball::new_tree(&data, &clam_metric, &criteria, Some((root_seed).try_into().unwrap()));
+
+        let alg = cakes::RnnClustered(*radius);
+        let rnn_results: Vec<(usize, f32)> = alg.search(&data, &clam_metric, &root, &query);
+        let results_json = serde_json::to_string(&rnn_results).expect("Failed to convert results to json");
+
+        let id = Uuid::new_v4();
+        let file_path = self.tmp_dir.path().join(format!("{}.txt", id.to_string()));
+        fs::write(file_path, results_json).expect("Failed to write results to file");
+        write_index(id.to_string(), "Query result".to_string(), &self.tmp_dir);
+
+        PlainText(format!("Query finished with UUID {}.", id.to_string()))
     }
 
     // Test functions for development purposes, remove before shipping
