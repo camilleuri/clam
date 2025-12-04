@@ -12,6 +12,7 @@ This repository is a workspace that contains the following crates:
 - `abd-clam`: The main CLAM library. See [here](crates/abd-clam/README.md) for more information.
 - `distances`: Provides various distance functions and the `Number` trait. See [here](crates/distances/README.md) for more information.
 - `clam-mbed`: A CLI for running the dimensionality reduction algorithms. See [here](tools/mbed/README.md) for more information.
+- `bake`: A web API for various CLAM functions. See [here](crates/bake/README.md) for more information.
 
 and the following Python packages:
 

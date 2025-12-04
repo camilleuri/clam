@@ -1,12 +1,12 @@
 # BAKE: Better Access to k-NN for Everyone
 
-> BAKE is in very early development and is not ready for use.
+> BAKE is in very early development and breaking changes frequently occur.
 
 HTTP API for CLAM, powered by the Poem framework. 
 
 To run from the main workspace directory: `cargo run --release --bin bake`
 
-A Swagger UI panel is accessible at http://localhost/ (port 80) to view and test API endpoints.
+A Swagger UI panel is accessible at [HTTP port 80](http://localhost) to view and test API endpoints.
 
 ### Currently implemented
 - [x] Core functions
@@ -15,7 +15,7 @@ A Swagger UI panel is accessible at http://localhost/ (port 80) to view and test
   - [x] Delete
   - [x] About
 - [ ] CAKES functions
-  - [ ] rNN
+  - [x] rNN
   - [ ] kNN
 - [ ] Additional functions
   - [ ] Anomaly detection

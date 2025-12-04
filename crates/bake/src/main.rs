@@ -1,16 +1,15 @@
 //! BAKE - the CLAM web server.
 
 // TODO:
-// Test rNN
 // Use a metadata file per upload instead of a single monolithic file
 // Make /download return a txt file instead of an octet buffer
-// Specify features of abd-clam used
+// Create config file for things like ports
+// Improve symagen func: test if changing seed does anything (also apply for rNN/kNN) and allow arguments
 
 // Allow rNN and kNN to take different metrics
 // Allow rNN and kNN to specify criteria/query
 // Allow rNN and kNN to take datasets of varying dimensionality/type
 // Allow rNN and kNN to fail gracefully and write failure state to UUID file
-// Allow rNN and kNN to return UUID early and continue working
 
 use abd_clam::{Ball, Cluster, FlatVec, cakes::{self, SearchAlgorithm}, cluster::Partition, dataset::AssociatesMetadataMut};
 use poem::{listener::TcpListener, Route};
@@ -19,7 +18,8 @@ use rand::prelude::*;
 use serde_json::{self, Error};
 use std::{fs, io::{Read, Seek}};
 use std::io::{Write, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::thread;
 use tempfile::tempdir;
 use uuid::Uuid;
 
@@ -41,8 +41,8 @@ struct Api {
 // which is a JSON file located at index.json,
 // and contains metadata on all files in the temp directory.
 
-fn read_index(uuid: String, tmp_dir: &tempfile::TempDir) -> String {
-    let file_path = tmp_dir.path().join("index.json");
+fn read_index(uuid: String, tmp_dir: &Path) -> String {
+    let file_path = tmp_dir.join("index.json");
     if Path::new(&file_path).exists() {
         let f = fs::File::open(file_path).unwrap();
         f.lock().expect("Failed to lock file");
@@ -60,8 +60,8 @@ fn read_index(uuid: String, tmp_dir: &tempfile::TempDir) -> String {
     }
 }
 
-fn write_index(uuid: String, to_write: String, tmp_dir: &tempfile::TempDir) {
-    let file_path = tmp_dir.path().join("index.json");
+fn write_index(uuid: String, to_write: String, tmp_dir: &Path) {
+    let file_path = tmp_dir.join("index.json");
     let mut f = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -84,6 +84,55 @@ fn write_index(uuid: String, to_write: String, tmp_dir: &tempfile::TempDir) {
     f.write_all(json_value.to_string().as_bytes()).expect("Failed to write to file");
 }
 
+    /// rNN search thread
+    fn rnn_thread( 
+        rows_uuid: Query<String>, 
+        labels_uuid: Query<String>,
+        metric: Query<String>,
+        dimensionality: Query<usize>,
+        radius: Query<f32>,
+        seed: Query<Option<usize>>,
+        query_uuid: Uuid,
+        tmp_dir: &PathBuf
+    ) {
+        write_index(query_uuid.to_string(), "Query result (in progress)".to_string(), &tmp_dir.as_path());
+
+        let rows_path = &tmp_dir.as_path().join(format!("{}.txt", rows_uuid.to_string()));
+        let rows_file_contents= fs::read_to_string(rows_path).expect("Failed to read rows as string");
+        let rows: Vec<Vec<f32>> = serde_json::from_str(&rows_file_contents).expect("Failed to read string of rows as vector");
+
+        let labels_path = &tmp_dir.as_path().join(format!("{}.txt", labels_uuid.to_string()));
+        let labels_file_contents= fs::read_to_string(labels_path).expect("Failed to read labels as string");
+        let labels: Vec<bool> = serde_json::from_str(&labels_file_contents).expect("Failed to read string of labels as vector");
+
+        let data = FlatVec::new(rows).unwrap().with_metadata(&labels).unwrap();
+
+        let clam_metric = match metric.as_str() {
+            "euclidean" => Ok(abd_clam::metric::Euclidean),
+            // todo!("Camille")
+            &_ => Err("Incorrect metric specified"),
+        }.expect("Incorrect metric specified");
+
+        let criteria = |c: &Ball<_>| c.cardinality() > 1; // todo!("Camille")
+
+        let query = vec![0_f32; *dimensionality]; // todo!("Camille")
+
+        let root_seed: usize = match *seed {
+            Some(i) => i,
+            None => 42
+        };
+
+        let root = Ball::new_tree(&data, &clam_metric, &criteria, Some((root_seed).try_into().unwrap()));
+
+        let alg = cakes::RnnClustered(*radius);
+        let rnn_results: Vec<(usize, f32)> = alg.search(&data, &clam_metric, &root, &query);
+        let results_json = serde_json::to_string(&rnn_results).expect("Failed to convert results to json");
+
+        let file_path = &tmp_dir.as_path().join(format!("{}.txt", query_uuid.to_string()));
+        fs::write(file_path, results_json).expect("Failed to write results to file");
+        write_index(query_uuid.to_string(), "Query result (completed)".to_string(), &tmp_dir.as_path());
+    }
+
 #[OpenApi]
 impl Api {
 
@@ -96,7 +145,7 @@ impl Api {
         let file_path = self.tmp_dir.path().join(format!("{}.txt", id.to_string()));
         let mut tmp_file = fs::File::create(&file_path).expect("Failed to create file");
         tmp_file.write_all(data.0.as_ref()).expect("Failed to write data");
-        write_index(id.to_string(), "Dataset".to_string(), &self.tmp_dir);
+        write_index(id.to_string(), "Dataset".to_string(), &self.tmp_dir.path());
 
         PlainText(format!("Your data's UUID is {}. Do not lose it. Only share it with those you trust to access or delete your data.", id.to_string()))
     }
@@ -105,7 +154,7 @@ impl Api {
     #[oai(path = "/delete", method = "delete", tag = "Labels::FileManagement")]
     async fn delete(&self, uuid: Query<String>) -> PlainText<String> {
         let file_path = self.tmp_dir.path().join(format!("{}.txt", uuid.to_string()));
-        write_index(uuid.to_string(), "Deleted".to_string(), &self.tmp_dir);
+        write_index(uuid.to_string(), "Deleted".to_string(), &self.tmp_dir.path());
         match fs::remove_file(file_path) {
             Ok(_) => PlainText(format!("UUID {} successfully deleted.", uuid.to_string())),
             Err(e) => PlainText(format!("UUID {} deletion failed with error {}.", uuid.to_string(), e.to_string())),
@@ -129,7 +178,7 @@ impl Api {
     /// whether it is a dataset, in progress query, or completed query.
     #[oai(path = "/about", method = "get", tag = "Labels::Information")]
     async fn about(&self, uuid: Query<String>) -> PlainText<String> {
-        PlainText(read_index(uuid.to_string(), &self.tmp_dir).to_string())
+        PlainText(read_index(uuid.to_string(), &self.tmp_dir.path()).to_string())
     }
 
     // Query functions.
@@ -145,46 +194,11 @@ impl Api {
         seed: Query<Option<usize>>
     ) -> PlainText<String> {
 
-        let rows_path = self.tmp_dir.path().join(format!("{}.txt", rows_uuid.to_string()));
-        let rows_file_contents= fs::read_to_string(rows_path).expect("Failed to read rows as string");
-        let rows: Vec<Vec<f32>> = serde_json::from_str(&rows_file_contents).expect("Failed to read string of rows as vector");
-
-        let labels_path = self.tmp_dir.path().join(format!("{}.txt", labels_uuid.to_string()));
-        let labels_file_contents= fs::read_to_string(labels_path).expect("Failed to read labels as string");
-        let labels: Vec<bool> = serde_json::from_str(&labels_file_contents).expect("Failed to read string of labels as vector");
-        println!("{:?}", rows);
-        println!("{:?}", labels);
-
-        let data = FlatVec::new(rows).unwrap().with_metadata(&labels).unwrap();
-
-        let clam_metric = match metric.as_str() {
-            "euclidean" => Ok(abd_clam::metric::Euclidean),
-            // todo!("Camille")
-            &_ => Err("Incorrect metric specified"),
-        }.expect("Incorrect metric specified");
-
-        let criteria = |c: &Ball<_>| c.cardinality() > 1; // todo!("Camille")
-
-        let query = vec![0_f32; *dimensionality]; // todo!("Camille")
-
-        let root_seed: usize = match *seed {
-            Some(i) => i,
-            None => 42
-        };
-
-        let root = Ball::new_tree(&data, &clam_metric, &criteria, Some((root_seed).try_into().unwrap()));
-
-        let alg = cakes::RnnClustered(*radius);
-        let rnn_results: Vec<(usize, f32)> = alg.search(&data, &clam_metric, &root, &query);
-        println!("{:?}", rnn_results);
-        let results_json = serde_json::to_string(&rnn_results).expect("Failed to convert results to json");
-
-        let id = Uuid::new_v4();
-        let file_path = self.tmp_dir.path().join(format!("{}.txt", id.to_string()));
-        fs::write(file_path, results_json).expect("Failed to write results to file");
-        write_index(id.to_string(), "Query result".to_string(), &self.tmp_dir);
-
-        PlainText(format!("Query finished with UUID {}.", id.to_string()))
+        let query_uuid = Uuid::new_v4();
+        let tmp_dir = self.tmp_dir.path().to_path_buf();
+        let _handler = thread::spawn(move || { rnn_thread(rows_uuid, labels_uuid, metric, dimensionality, radius, seed, query_uuid, &tmp_dir); });
+        
+        PlainText(format!("Query started with UUID {}.", query_uuid.to_string()))
     }
 
     // Test functions for development purposes, remove before shipping
@@ -213,14 +227,14 @@ impl Api {
         let rows_file_path = self.tmp_dir.path().join(format!("{}.txt", rows_id.to_string()));
         let mut rows_tmp_file = fs::File::create(&rows_file_path).expect("Failed to create file");
         rows_tmp_file.write_all(rows_json.as_ref()).expect("Failed to write data");
-        write_index(rows_id.to_string(), "Dataset (symagen rows)".to_string(), &self.tmp_dir);
+        write_index(rows_id.to_string(), "Dataset (symagen rows)".to_string(), &self.tmp_dir.path());
 
         let labels_json = serde_json::to_string(&labels).expect("Failed to convert json to string");
         let labels_id = Uuid::new_v4();
         let labels_file_path = self.tmp_dir.path().join(format!("{}.txt", labels_id.to_string()));
         let mut labels_tmp_file = fs::File::create(&labels_file_path).expect("Failed to create file");
         labels_tmp_file.write_all(labels_json.as_ref()).expect("Failed to write data");
-        write_index(labels_id.to_string(), "Dataset (symagen labels)".to_string(), &self.tmp_dir);
+        write_index(labels_id.to_string(), "Dataset (symagen labels)".to_string(), &self.tmp_dir.path());
 
         PlainText(format!("Rows UUID: {}, Labels UUID: {}", rows_id.to_string(), labels_id.to_string()))
     }
@@ -228,7 +242,7 @@ impl Api {
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    let tmp_dir = tempdir()?;
+    let tmp_dir = tempdir().expect("Failed to create tempdir");
     println!("Working from directory {:?}\nQuick link: http://localhost", tmp_dir.path());
     let api_service =
         OpenApiService::new(Api { tmp_dir }, "URI-ABD BAKE API", "0.1.0").server("http://localhost:80/api");
